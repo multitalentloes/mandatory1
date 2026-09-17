@@ -53,7 +53,7 @@ class Poisson2D:
         A : scipy sparse LIL matrix
             The vectorized Laplace operator
         """
-        raise NotImplementedError("The laplace method is not implemented yet.")
+        return sparse.diags(([1.0, -2.0, 1.0]), (-1, 0, 1), (N, N), format="lil")
 
     def assemble(
         self, N: int, f: sp.Expr, ue: sp.Expr
@@ -84,7 +84,35 @@ class Poisson2D:
         Dirichlet boundary conditions using the exact solution ue.
 
         """
-        raise NotImplementedError("The assemble method is not implemented yet.")
+
+        # create A = (kron(Dx,I)+kron(I,Dy))
+        D = self.laplace(N+1) # differentiation matrix
+        D_x = ((1.0/(self.p.L/N))**2) * D
+        A = sparse.kron(D_x, sparse.eye(N+1), format="lil")
+        A += sparse.kron(sparse.eye(N+1), D_x)
+
+        # create b (ravel(F)) where f is the method of manufactured solution evaluated on the domain
+        xij, yij = self.create_mesh(N)
+        F = self.meshfunction(f, xij, yij)
+        b = np.ravel(F)
+
+        # handle boundary conditions:
+        bnds = self.get_boundary_indices(N)
+        
+        # b[bnds] = 0 # would be true for dirichlet = 0 condition, but we are using manufactured solutions!
+        Ue = self.meshfunction(ue, xij, yij)
+        b[bnds] = Ue.ravel()[bnds]
+
+        for idx in bnds:
+            # we have to ident row = idx
+            A[idx, :] = 0
+            A[idx, idx] = 1
+
+        A = A.tocsr()
+
+        return (A, b)
+
+        # raise NotImplementedError("The assemble method is not implemented yet.")
 
     def meshfunction(self, u: sp.Expr, xij: np.ndarray, yij: np.ndarray) -> np.ndarray:
         """Return Sympy function as mesh function
@@ -97,13 +125,18 @@ class Poisson2D:
         -------
         array - The input function as a mesh function
         """
-        raise NotImplementedError("The meshfunction method is not implemented yet.")
+
+        return sp.lambdify((x, y), u)(xij, yij)
 
     def get_boundary_indices(self, N: int) -> np.ndarray:
         """Return indices of vectorized matrix that belongs to the boundary"""
-        raise NotImplementedError(
-            "The get_boundary_indices method is not implemented yet."
-        )
+        bbox = np.ones((N+1, N+1))
+        bbox[0,:] = 0 # zero out top row
+        bbox[N-1,:] = 0 # zero out bottom row
+        bbox[:,0] = 0 # zero out left side
+        bbox[:,N-1] = 0 # zero out right side
+        
+        return np.where(bbox.ravel() == 0)[0]
 
     def l2_error(self, u: np.ndarray, ue: sp.Expr) -> float:
         """Return l2-error
@@ -120,7 +153,25 @@ class Poisson2D:
         float - The l2-error
 
         """
-        raise NotImplementedError("The l2_error method is not implemented yet.")
+        
+        # u is indexable, but ue is continuous, how should i "align" them when computing the
+        # diff mesh function which I can take the norm of?
+
+        N = u.shape[0]
+
+
+        xij, yij = self.create_mesh(N-1)
+
+
+        dxdy = self.p.L / u.shape[0] # dx = dy and dx*dy will be multiplied with error squared at each point in the mesh
+
+        mf = self.meshfunction(ue, xij, yij)
+
+        flat_diff = ((u-mf)**2).ravel()
+
+        return (dxdy*np.sum(flat_diff))**0.5
+
+
 
     def __call__(self, N: int, ue: sp.Expr) -> np.ndarray:
         """Solve Poisson's equation with a given manufactured solution
@@ -140,7 +191,7 @@ class Poisson2D:
         A, b = self.assemble(N, sp.diff(ue, x, 2) + sp.diff(ue, y, 2), ue)
         return sparse_linalg.spsolve(A, b.ravel()).reshape((N + 1, N + 1))
 
-    def convergence_rates(self, ue: sp.Expr, m: int = 6):
+    def convergence_rates(self, ue: sp.Expr, m: int = 6): # m should be 6, temporary change for profiling
         E = []
         h = []
         N0 = 8
@@ -149,7 +200,9 @@ class Poisson2D:
             E.append(self.l2_error(u, ue))
             h.append(self.p.L / N0)
             N0 *= 2
+            print(f"Done with {N0} spatial step size")
         r = [np.log(E[i - 1] / E[i]) / np.log(h[i - 1] / h[i]) for i in range(1, m, 1)]
+        print(E)
         return r, np.array(E), np.array(h)
 
     def eval(self, U: np.ndarray, x: float, y: float) -> float:
@@ -173,6 +226,7 @@ def test_convergence_poisson2d():
     ue = sp.exp(sp.cos(4 * sp.pi * x) * sp.sin(2 * sp.pi * y))
     sol = Poisson2D(1)
     r, _, _ = sol.convergence_rates(ue)
+    print(r)
     assert abs(r[-1] - 2) < 1e-2
 
 
@@ -185,8 +239,43 @@ def test_interpolation():
     assert abs(sol.eval(U, 0.52, 0.63) - ue.subs({x: 0.52, y: 0.63}).n()) < 1e-3
     assert abs(sol.eval(U, h / 2, 1 - h / 2) - ue.subs({x: h, y: 1 - h / 2}).n()) < 1e-3
 
+def test_laplace():
+    p = Poisson2D(10)
+    A = p.laplace(40)
+
+    # check that [1, -2, 1] pattern holds!
+    for row in range(40):
+        for col in range(40):
+            if col and col + 1 == row:
+                assert A[row, col] == 1.0
+            if row == col:
+                assert A[row, col] == -2.0
+            if col < 39 and col - 1 == row:
+                assert A[row, col] == 1.0
+
+def test_boundary_indices():
+    p = Poisson2D(10)
+    bbox = p.get_boundary_indices(10)
+
+def test_symbolic_mesh_function():
+    p = Poisson2D(10)
+
+    u = 2*x + y
+    xij, yij = p.create_mesh(10)
+
+    m = p.meshfunction(u, xij, yij)
+
+    for row in range(10):
+        for col in range(10):
+            assert m[row, col] == 2*row + col
+
+def test_call():
+    Poisson2D(10)()
 
 if __name__ == "__main__":
+    test_laplace()
+    test_boundary_indices()
+    test_symbolic_mesh_function()
     test_convergence_poisson2d()
-    test_interpolation()
+    # test_interpolation()
     print("All tests passed!")
