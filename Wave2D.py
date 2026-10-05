@@ -259,16 +259,6 @@ def test_convergence_wave2d():
     r, _, _ = sol.convergence_rates(m=5, mx=2, my=3)
     assert abs(r[-1] - 2) < 1e-2, r
 
-def test_init():
-    sol = Wave2D()
-    initial = sol.initialize(30, 2, 3)
-    plt.imshow(initial, origin="lower", aspect="auto")
-    plt.colorbar(label="Value")
-    plt.xlabel("x")
-    plt.ylabel("y")
-    plt.show()
-
-
 def test_convergence_wave2d_neumann():
     solN = Wave2D_Neumann()
     r, _, _ = solN.convergence_rates(mx=3, my=3)
@@ -329,7 +319,6 @@ def make_gifs():
 
 
 if __name__ == "__main__":
-    # test_init()
     test_convergence_wave2d()
     test_convergence_wave2d_neumann()
     test_exact_wave2d()
