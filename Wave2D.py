@@ -277,7 +277,7 @@ def test_exact_wave2d():
     return # successful
 
 def make_gifs():
-    sols = Wave2D()(32, 100, cfl=1/math.sqrt(2), mx=3, my=2, store_data=1)
+    sols = Wave2D_Neumann()(32, 28, cfl=1/math.sqrt(2), mx=3, my=2, store_data=1)
     sols = np.asarray(sols)
 
     interval=1
@@ -314,7 +314,7 @@ def make_gifs():
         blit=True,
     )
 
-    anim.save("dirichlet.gif", writer=PillowWriter(fps=fps))
+    anim.save("neumannwave.gif", writer=PillowWriter(fps=fps))
     plt.close(fig)
 
 
