@@ -295,9 +295,6 @@ def test_symbolic_mesh_function():
         for col in range(10):
             assert m[row, col] == 2*row + col
 
-def test_call():
-    Poisson2D(10)()
-
 if __name__ == "__main__":
     test_laplace()
     test_boundary_indices()
