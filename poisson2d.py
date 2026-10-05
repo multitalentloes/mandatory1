@@ -132,9 +132,9 @@ class Poisson2D:
         """Return indices of vectorized matrix that belongs to the boundary"""
         bbox = np.ones((N+1, N+1))
         bbox[0,:] = 0 # zero out top row
-        bbox[N-1,:] = 0 # zero out bottom row
+        bbox[N,:] = 0 # zero out bottom row
         bbox[:,0] = 0 # zero out left side
-        bbox[:,N-1] = 0 # zero out right side
+        bbox[:,N] = 0 # zero out right side
         
         return np.where(bbox.ravel() == 0)[0]
 
@@ -163,7 +163,7 @@ class Poisson2D:
         xij, yij = self.create_mesh(N-1)
 
 
-        dxdy = self.p.L / u.shape[0] # dx = dy and dx*dy will be multiplied with error squared at each point in the mesh
+        dxdy = (self.p.L / (u.shape[0] - 1)) ** 2 # dx = dy and dx*dy will be multiplied with error squared at each point in the mesh
 
         mf = self.meshfunction(ue, xij, yij)
 
@@ -218,7 +218,31 @@ class Poisson2D:
         The value of u(x, y)
 
         """
-        raise NotImplementedError("The eval method is not implemented yet.")
+        h = self.p.L / (U.shape[1] - 1)
+        N = U.shape[0]
+        assert U.shape[0] == U.shape[1] # cartesian discretization with hx = hy of unit square
+
+        xbefore = int(x // h)
+        ybefore = int(y // h)
+
+        print(xbefore, ybefore)
+
+
+        def lx(xs, x: float, xj: int, dx: float):
+            ans = 1
+            for i in xs:
+                if i != xj:
+                    ans *= (x-i*dx)/(xj*dx - i*dx)
+            return ans
+
+
+        ans = 0
+        for i in [xbefore, xbefore+1]:
+            for j in [ybefore, ybefore+1]:
+                ans += U[i,j] * lx([xbefore, xbefore+1], x, i, h) * lx([ybefore, ybefore+1], y, j, h)
+
+        return ans
+        # raise NotImplementedError("The eval method is not implemented yet.")
 
 
 def test_convergence_poisson2d():
@@ -236,8 +260,10 @@ def test_interpolation():
     N = 100
     U = sol(N, ue)
     h = sol.p.L / N
+    
+    # print(sol.eval(U, 1 - 3*h / 2, 1 - 3*h / 2), ue.subs({x: 1 - 3*h / 2, y: 1 - 3*h / 2}).n())
     assert abs(sol.eval(U, 0.52, 0.63) - ue.subs({x: 0.52, y: 0.63}).n()) < 1e-3
-    assert abs(sol.eval(U, h / 2, 1 - h / 2) - ue.subs({x: h, y: 1 - h / 2}).n()) < 1e-3
+    assert abs(sol.eval(U, h / 2, 1 - h / 2) - ue.subs({x: h / 2, y: 1 - h / 2}).n()) < 1e-3
 
 def test_laplace():
     p = Poisson2D(10)
@@ -277,5 +303,5 @@ if __name__ == "__main__":
     test_boundary_indices()
     test_symbolic_mesh_function()
     test_convergence_poisson2d()
-    # test_interpolation()
+    test_interpolation()
     print("All tests passed!")
